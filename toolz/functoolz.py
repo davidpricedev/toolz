@@ -388,8 +388,7 @@ def _restore_curry(cls, func, args, kwargs, userdict, is_decorated):
     return obj
 
 
-@curry
-def memoize(func, cache=None, key=None):
+class memoize:
     """ Cache a function's result for speedy future evaluation
 
     Considerations:
@@ -424,49 +423,60 @@ def memoize(func, cache=None, key=None):
     ...     if verbose:
     ...         print('Calculating %s + %s' % (x, y))
     ...     return x + y
+
+    Note, the memoization cache can be cleared if needed via
+    >>> @memoize
+    ... def add(x, y):  return x + y
+    ... add(2, 3)
+    ... add.clear_cache()
     """
-    if cache is None:
-        cache = {}
 
-    try:
-        may_have_kwargs = has_keywords(func) is not False
-        # Is unary function (single arg, no variadic argument or keywords)?
-        is_unary = is_arity(1, func)
-    except TypeError:  # pragma: no cover
-        may_have_kwargs = True
-        is_unary = False
+    def __init__(self, func, cache=None, key=None):
+        self.wrapped_func = func
+        self.cache = cache
+        self.key = key
 
-    if key is None:
-        if is_unary:
-            def key(args, kwargs):
-                return args[0]
-        elif may_have_kwargs:
-            def key(args, kwargs):
-                return (
-                    args or None,
-                    frozenset(kwargs.items()) if kwargs else None,
-                )
-        else:
-            def key(args, kwargs):
-                return args
+        if self.cache is None:
+            self.cache = {}
 
-    def memof(*args, **kwargs):
-        k = key(args, kwargs)
         try:
-            return cache[k]
+            may_have_kwargs = has_keywords(func) is not False
+            # Is unary function (single arg, no variadic argument or keywords)?
+            is_unary = is_arity(1, func)
+        except TypeError:  # pragma: no cover
+            may_have_kwargs = True
+            is_unary = False
+
+        self.key = key
+        if self.key is None:
+            if is_unary:
+                self.key = lambda args, kwargs: args[0]
+            elif may_have_kwargs:
+                self.key = lambda args, kwargs: (
+                    args or None, frozenset(kwargs.items()) if kwargs else None
+                )
+            else:
+                self.key = lambda args, kwargs: args
+
+        try:
+            self.__name__ = func.__name__
+        except AttributeError:
+            pass
+        self.__doc__ = func.__doc__
+        self.__wrapped__ = self.wrapped_func
+
+    def __call__(self, *args, **kwargs):
+        k = self.key(args, kwargs)
+        try:
+            return self.cache[k]
         except TypeError:
             raise TypeError("Arguments to memoized function must be hashable")
         except KeyError:
-            cache[k] = result = func(*args, **kwargs)
+            self.cache[k] = result = self.wrapped_func(*args, **kwargs)
             return result
 
-    try:
-        memof.__name__ = func.__name__
-    except AttributeError:
-        pass
-    memof.__doc__ = func.__doc__
-    memof.__wrapped__ = func
-    return memof
+    def clear_cache(self):
+        self.cache = {}
 
 
 class Compose(object):
